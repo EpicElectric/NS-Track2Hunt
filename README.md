@@ -1,3 +1,314 @@
 # NS-Track2Hunt
-Epic-HoneyPot tool
 # Execute it on a clean system or remove all log files.
+Epic-HoneyPot tool
+
+
+#!/bin/bash
+
+# Define colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+PURPLE='\033[0;35m'
+
+
+
+function NODUPSSHLOG(){
+    local ssh_log_dir="/home/kali/Desktop/SSHlogs"
+    local ssh_log_file="${ssh_log_dir}/SSHlog.txt"
+
+    [ ! -d ${ssh_log_dir} ] && mkdir ${ssh_log_dir}
+
+    journalctl -fu ssh >> ${ssh_log_file} &
+}
+
+function SCANSSH(){
+    local ssh_log_dir="/home/kali/Desktop/SSHlogs"
+    local ssh_log_file="${ssh_log_dir}/SSHlog.txt"
+    local ssh_scan_file="${ssh_log_dir}/SSH-scan-results.txt"
+
+    touch ${ssh_scan_file}
+
+    # Live log view in a new terminal
+    gnome-terminal -- bash -c "watch -n 1 'tail -n 20 ${ssh_log_file}'"
+
+    while true; do
+        local ssh_check=$(grep -E -o "([0-9]{1,3}[\.]){3}[0-9]{1,3}" ${ssh_log_file} | sort | uniq | grep -v "0.0.0.0")
+        local ssh_regex=$(grep -E -o "([0-9]{1,3}[\.]){3}[0-9]{1,3}" ${ssh_scan_file} | sort | uniq)
+        
+        for ip in ${ssh_check}; do
+            if ! echo "${ssh_regex}" | grep -q "${ip}"; 
+			then sleep 5
+                echo -e "${RED}[vvv] A new suspect IP address was detected: ${ip} [vvv] .. start gathering information...${NC}"
+             diff <( echo "$ssh_check" ) <( echo "$ssh_regex" ) | awk '{print $2}'> $HOME/Desktop/SSHlogs/SSHnewIP.txt
+                nmap -iL $HOME/Desktop/SSHlogs/SSHnewIP.txt >> $HOME/Desktop/SSHlogs/SSH-scan-results.txt
+                
+                for i in $(cat $HOME/Desktop/SSHlogs/SSHnewIP.txt); do whois $i | grep -E "OrgName:|Address:|City:|StateProv:|PostalCode:|Country:|OrgAbuseHandle:|OrgAbuseName:|OrgAbusePhone:|OrgAbuseEmail:|OrgAbuseRef:" > $HOME/Desktop/SSHlogs/$i.organizationinfo.OK 
+                done
+                nmap ${ip} -sV -Pn >> ${ssh_scan_file}
+                echo > ${ssh_log_file}
+                journalctl -fu ssh >> ${ssh_log_file} &
+                sleep 10
+			
+      
+            else
+                sleep 10 && echo -e "${GREEN}No new suspected IP address has been found yet...${NC}"
+            fi 
+        done
+    done
+}
+
+function NODUPFTPLOG(){
+    # This function logs the ftp attempts without duplicates
+    local ftp_log_dir="/home/kali/Desktop/FTPlogs"
+    local ftp_log_file="${ftp_log_dir}/FTPlog.txt"
+
+    [ ! -d ${ftp_log_dir} ] && mkdir ${ftp_log_dir}
+
+    journalctl -fu vsftpd >> ${ftp_log_file} &
+}
+
+function SCANFTP(){
+    # This function scans for ftp attempts
+    local ftp_log_dir="/home/kali/Desktop/FTPlogs"
+    local ftp_log_file="${ftp_log_dir}/FTPlog.txt"
+    local ftp_scan_file="${ftp_log_dir}/FTP-scan-results.txt"
+
+    touch ${ftp_scan_file}
+
+    # Live log view in a new terminal
+    gnome-terminal -- bash -c "watch -n 1 'tail -n 20 ${ftp_log_file}'"
+
+    while true; do
+        local ftp_check=$(grep -E -o "([0-9]{1,3}[\.]){3}[0-9]{1,3}" ${ftp_log_file} | sort | uniq | grep -v "0.0.0.0")
+        local ftp_regex=$(grep -E -o "([0-9]{1,3}[\.]){3}[0-9]{1,3}" ${ftp_scan_file} | sort | uniq)
+        
+        for ip in ${ftp_check}; do
+            if ! echo "${ftp_regex}" | grep -q "${ip}"; 
+            then sleep 5
+                echo -e "${RED}[vvv] A new suspect IP address was detected: ${ip} [vvv] .. start gathering information...${NC}"
+                diff <( echo "$ftp_check" ) <( echo "$ftp_regex" ) | awk '{print $2}'> $HOME/Desktop/FTPlogs/FTPnewIP.txt
+                nmap -iL $HOME/Desktop/FTPlogs/FTPnewIP.txt >> $HOME/Desktop/FTPlogs/FTP-scan-results.txt
+               
+                for i in $(cat /home/kali/Desktop/FTPlogs/FTPnewIP.txt); do whois $i | grep -E "OrgName:|Address:|City:|StateProv:|PostalCode:|Country:|OrgAbuseHandle:|OrgAbuseName:|OrgAbusePhone:|OrgAbuseEmail:|OrgAbuseRef:" >> /home/kali/Desktop/FTPlogs/$i.organizationinfo.OK 
+                done
+               # nmap ${ip} -sV -Pn >> ${ftp_scan_file}
+                echo > ${ftp_log_file}
+                journalctl -fu vsftpd >> ${ftp_log_file} &
+                sleep 10
+            else
+                sleep 10 && echo -e "${GREEN}No new suspected IP address has been found yet...${NC}"
+            fi 
+        done
+    done
+}
+
+function SMBWP(){
+	# this function monitor login attempts of wrong password (with correct username)
+	cd /var/log/samba
+    
+	IPSTATUSWRONGPASS=$( sudo grep -iRn NT_STATUS_WRONG_PASSWORD | awk NR==1 | awk '{print $1}' | awk  -F "log" '{print $2}' | awk -F ":" '{print $1}' |  cut -d '.' -f 2,3,4,5 ) 
+	SMBWPCHECK=$( sudo grep -iRn NT_STATUS_WRONG_PASSWORD | awk NR==1 | awk '{print $6,$12}' | awk -F "," '{print $1}' | awk -F "[" '{print $2}' | awk -F "]" '{print $2}' | sed 's/ //g')
+	SCANCHECK=$(grep -E -o "([0-9]{1,3}[\.]){3}[0-9]{1,3}" /home/kali/Desktop/SMB/SMB-scanWP-results.txt  | sort | uniq) 
+	sleep 10
+	
+    if [ ! -z $SMBWPCHECK ]
+	then echo -e "${RED}A suspect $IPSTATUSWRONGPASS IP address was detected [vvv] successful USER but unsuccessful [xxx] PASSWORD attempt:(.. start gatthering information...${NC}"
+	if [ ! "$SCANCHECK" == "$IPSTATUSWRONGPASS" ]
+	then diff <( echo "$SCANCHECK" ) <( echo "$IPSTATUSWRONGPASS" ) | awk '{print $2}'> $HOME/Desktop/SMB/smbWPnewIP.txt
+	nmap -iL $HOME/Desktop/SMB/smbWPnewIP.txt >> /home/kali/Desktop/SMB/SMB-scanWP-results.txt
+	for i in $(cat $HOME/Desktop/SMB/smbWPnewIP.txt); do whois $i | grep -E "OrgName:|Address:|City:|StateProv:|PostalCode:|Country:|OrgAbuseHandle:|OrgAbuseName:|OrgAbusePhone:|OrgAbuseEmail:|OrgAbuseRef:" >> /home/kali/Desktop/SMB/$i.organizationinfo.WP.txt ; done
+	
+	else echo -e "${PURPLE}$IPSTATUSWRONGPASS IP is already exists in our Database and was scanned. Scanning results are available in /home/kali/Desktop/SMB/SMB-scanWP-results.txt...${NC}"
+	fi
+	sudo grep -iRn NT_STATUS_WRONG_PASSWORD /var/log/samba | tail >> $HOME/Desktop/SMB/live-activity.txt
+	SMBOK
+	else sleep 10; echo -e "${GREEN}No signs for suspicious activity yet, keep monitoring...${NC}" 
+	SMBOK
+	fi
+}
+
+function SMBOK(){
+	# this function monitor sucessfull login attempts
+	cd /var/log/samba
+	IPSTATUSOK=$( sudo grep -iRn NT_STATUS_OK | awk NR==1 | awk '{print $1}' | awk -F "log" '{print $2}' | awk -F ":" '{print $1}' |  cut -d '.' -f 2,3,4,5 )
+	SMBOKCHECK=$( sudo grep -iRn NT_STATUS_OK | awk NR==1 | awk '{print $16}' | awk -F "[" '{print $2}' | awk -F "]" '{print $1}' )
+	SCANOKCHECK=$(grep -E -o "([0-9]{1,3}[\.]){3}[0-9]{1,3}" /home/kali/Desktop/SMB/SMB-scanOK-results.txt  | sort | uniq)
+	if [ ! -z $SMBOKCHECK ]
+	then echo -e "${RED}An $IPSTATUSOK IP address was detected [vvv] successful [vvv] attempt:(.. start gatthering information...${NC}" 
+	if [ ! "$SCANOKCHECK" == "$IPSTATUSOK" ]
+	then diff <( echo "$SCANOKCHECK" ) <( echo "$IPSTATUSOK" ) | awk '{print $2}'> $HOME/Desktop/SMB/smbOKnewIP.txt
+	nmap -iL $HOME/Desktop/SMB/smbOKnewIP.txt >> /home/kali/Desktop/SMB/SMB-scanOK-results.txt
+	for i in $(cat $HOME/Desktop/SMB/smbOKnewIP.txt); do whois $i | grep -E "OrgName:|Address:|City:|StateProv:|PostalCode:|Country:|OrgAbuseHandle:|OrgAbuseName:|OrgAbusePhone:|OrgAbuseEmail:|OrgAbuseRef:" >> /home/kali/Desktop/SMB/$i.organizationinfo.OK.txt ; done
+	
+	else echo -e "${PURPLE}$IPSTATUSOK IP is already exists in our Database and was scanned. Scanning results are available in /home/kali/Desktop/SMB/SMB-scanOK-results.txt...${NC}"
+	fi
+	sudo grep -iRn NT_STATUS_OK /var/log/samba | tail >> $HOME/Desktop/SMB/live-activity.txt
+	SMBWU
+	else sleep 10; echo -e "${GREEN}No signs for suspicious activity yet, keep monitoring...${NC}"
+	SMBWU
+	fi
+}
+
+function SMBWU(){
+	# this function monitor login attempts of wrong user
+    # IPSTATUSWRONGUSER=$( sudo grep -iRn NT_STATUS_NO_SUCH_USER | awk NR==1 | awk '{print $1}' | awk -F "log" '{print $2}' | awk -F ":" '{print $1}' | cut -d '.' -f 2,3,4,5 )
+	cd /var/log/samba
+	IPSTATUSWRONGUSER=$(sudo grep -iRn NT_STATUS_NO_SUCH_USER | grep remoteAddress | awk '{print $23}' | awk -F : '{print $2}' | sort | uniq)
+	SMBWUCHECK=$( sudo grep -iRn NT_STATUS_NO_SUCH_USER | awk NR==1 | awk '{print $12}' | awk -F "," '{print $1}'  )
+	SCANWUCHECK=$(grep -E -o "([0-9]{1,3}[\.]){3}[0-9]{1,3}" /home/kali/Desktop/SMB/SMB-scanWU-results.txt | sort | uniq)
+	if [ ! -z $SMBWUCHECK ]
+	then echo -e "${RED}A suspect $IPSTATUSWRONGUSER IP address was detected [xxx] unsuccessful [xxx] attempt:(.. start gatthering information...${NC}" 
+	if [ ! "$SCANWUCHECK" == "$IPSTATUSWRONGUSER" ]
+	then diff <( echo "$SCANWUCHECK" ) <( echo "$IPSTATUSWRONGUSER" ) | awk '{print $2}'> $HOME/Desktop/SMB/smbWUnewIP.txt 
+	nmap -iL $HOME/Desktop/SMB/smbWUnewIP.txt -sV -Pn >> /home/kali/Desktop/SMB/SMB-scanWU-results.txt
+	for i in $(cat $HOME/Desktop/SMB/smbWUnewIP.txt ); do whois $i | grep -E "OrgName:|Address:|City:|StateProv:|PostalCode:|Country:|OrgAbuseHandle:|OrgAbuseName:|OrgAbusePhone:|OrgAbuseEmail:|OrgAbuseRef:" >> /home/kali/Desktop/SMB/$i.organizationinfo.WU.txt ; done
+
+	else echo -e "${PURPLE}$IPSTATUSWRONGUSER IP is already exists in our Database and was scanned. Scanning results are available in /home/kali/Desktop/SMB/SMB-scanWU-results.txt...${NC}"
+	fi
+	sudo grep -iRn NT_STATUS_NO_SUCH_USER /var/log/samba | tail >> $HOME/Desktop/SMB/live-activity.txt
+	else echo -e "${GREEN}No Suspect Attempt..${NC}"
+	fi
+}
+
+
+
+function SMB-activate(){
+	while true
+	do SMBWP
+	done
+}
+
+# Main script
+
+echo "[*] Alerter - Network HoneyPot"    
+echo "Choose from list: 
+1. SSH
+2. FTP
+3. SMB
+4. Start all services" 
+echo -n "[+] Enter your choice: "
+read choice
+
+case ${choice} in
+    1)  
+        echo "Start using SSH(22)"
+        sudo apt-get update
+        sudo service ssh start
+        NODUPSSHLOG
+        SCANSSH
+        ;;
+    2)  
+        echo "Start using FTP(21)"
+        sudo apt-get update
+        sudo apt-get install vsftpd
+        sudo service vsftpd start
+        NODUPFTPLOG
+        SCANFTP
+        ;; 
+    3)  sudo service smbd start
+		sudo apt-get update
+		cd ~/Desktop
+		#checking Share folder exsistence 
+		if [ -d /home/kali/Desktop/Share ]
+		then echo "Dedicated SMB's Share folder already exists in path $HOME/Desktop/Share folder"
+		else echo "Creating a new sedicated SMB's Share folder in path $HOME/Desktop/Share folder";mkdir $HOME/Desktop/Share
+		fi  
+		sleep 3;
+		# checking SMB folder exsistence 
+		if [ -d /home/kali/Desktop/SMB ]
+		then echo "SMB folder already exists, all SMB activity will be saved in $HOME/Desktop/SMB folder"
+		else echo "SMB folder does not exists, creating it now";mkdir $HOME/Desktop/SMB
+		fi  
+		sudo chmod 777 ~/Desktop/Share 
+		sudo chmod 777 /etc/samba/smb.conf
+		#define in the configuration file a new kali folder for smb login attempts which will redirect to the Share folder
+		sudo echo "[kali]" >> /etc/samba/smb.conf
+		sudo echo "path = /home/kali/Desktop/Share" >> /etc/samba/smb.conf
+		sudo echo "browseable = yes" >> /etc/samba/smb.conf
+		sudo echo "read only = no" >> /etc/samba/smb.conf
+		# define an smb username and password 
+		sudo smbpasswd -a kali 
+		# Increase log level to 3 and save it in the configuration file 
+        sudo sed -i '46i\log level = 3' /etc/samba/smb.conf
+        sudo service smbd restart
+        sudo service nmb restart
+        
+        #checking gnome-terminal installation
+        GNOMECHECK=$(which gnome-terminal)
+        if [ ! "$GNOMECHECK" == "/usr/bin/gnome-terminal" ] 
+        then sudo apt install gnome-terminal;
+        else echo "gnome-terminal is already installed"
+        fi
+        # starting live mode
+        touch $HOME/Desktop/SMB/live-activity.txt
+        touch /home/kali/Desktop/SMB/SMB-scanOK-results.txt
+        touch /home/kali/Desktop/SMB/SMB-scanWP-results.txt
+		gnome-terminal -- tail $HOME/Desktop/SMB/live-activity.txt -F
+        SMB-activate
+        ;;
+    4)  #Start All Services  
+        echo "Starting all services..."
+        
+        # Start SSH service
+        echo "Start using SSH(22)"
+        sudo apt-get update
+        sudo service ssh start
+        NODUPSSHLOG 
+        SCANSSH &
+		
+        # Start FTP service
+        echo "Start using FTP(21)"
+        sudo apt-get update
+        sudo apt-get install vsftpd
+        sudo service vsftpd start
+        NODUPFTPLOG 
+        SCANFTP &
+		
+        # Start SMB service
+        sudo service smbd start
+		sudo apt-get update
+		cd ~/Desktop
+		#checking Share folder exsistence 
+		if [ -d /home/kali/Desktop/Share ]
+		then echo "Dedicated SMB's Share folder already exists in path $HOME/Desktop/Share folder"
+		else echo "Creating a new sedicated SMB's Share folder in path $HOME/Desktop/Share folder";mkdir $HOME/Desktop/Share
+		fi  
+		sleep 10;
+		# checking SMB folder exsistence 
+		if [ -d /home/kali/Desktop/SMB ]
+		then echo "SMB folder already exists, all SMB activity will be saved in $HOME/Desktop/SMB folder"
+		else echo "SMB folder does not exists, creating it now";mkdir $HOME/Desktop/SMB
+		fi  
+		sudo chmod 777 ~/Desktop/Share 
+		sudo chmod 777 /etc/samba/smb.conf
+		#define in the configuration file a new kali folder for smb login attempts which will redirect to the Share folder
+		sudo echo "[kali]" >> /etc/samba/smb.conf
+		sudo echo "path = /home/kali/Desktop/Share" >> /etc/samba/smb.conf
+		sudo echo "browseable = yes" >> /etc/samba/smb.conf
+		sudo echo "read only = no" >> /etc/samba/smb.conf
+		# define an smb username and password 
+		sudo smbpasswd -a kali 
+		# Increase log level to 3 and save it in the configuration file 
+        sudo sed -i '46i\log level = 3' /etc/samba/smb.conf
+        sudo service smbd restart
+        sudo service nmb restart
+        
+        #checking gnome-terminal installation
+        GNOMECHECK=$(which gnome-terminal)
+        if [ ! "$GNOMECHECK" == "/usr/bin/gnome-terminal" ] 
+        then sudo apt install gnome-terminal;
+        else echo "gnome-terminal is already installed"
+        fi
+        # starting live mode
+        touch $HOME/Desktop/SMB/live-activity.txt
+        touch /home/kali/Desktop/SMB/SMB-scanOK-results.txt
+        touch /home/kali/Desktop/SMB/SMB-scanWP-results.txt
+		gnome-terminal -- tail $HOME/Desktop/SMB/live-activity.txt -F &
+        SMB-activate 
+       ;;
+    *)
+        echo "Invalid choice"
+        ;;
+esac
+
